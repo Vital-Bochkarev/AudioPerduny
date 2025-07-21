@@ -2,7 +2,7 @@ app = "perduny-bot"
 
 [http_service]
   internal_port = 8080
-  force_https = true
+  checks = [{ port = 8080, path = "/healthz", interval = "10s", timeout = "2s" }]
 
 [[http_service.checks]]
   interval = "15s"

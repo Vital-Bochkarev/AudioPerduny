@@ -174,10 +174,10 @@ async def run_server():
     
     # Start health server using aiohttp
     app = web.Application()
-    app.router.add_get('/healthz', health_check)
+    # Ensure aiohttp binds to 0.0.0.0 to be reachable by Fly.io proxy
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', HEALTH_CHECK_PORT)
+    site = web.TCPSite(runner, '0.0.0.0', HEALTH_CHECK_PORT) # Changed '0.0.0.0' explicitly
     await site.start()
     logger.info(f"Health check server started on port {HEALTH_CHECK_PORT}")
     
