@@ -54,60 +54,82 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     if file_id:
-        # You can store file_id in a database associated with the user for later retrieval
-        # For this example, we'll just acknowledge receipt.
-        # In a real app, you might save this ID for the inline query handler.
+        # Store file_id and file_type in user_data to await the name
+        context.user_data['pending_audio_file_id'] = file_id
+        context.user_data['pending_audio_file_type'] = file_type
+        context.user_data['awaiting_audio_name'] = True
+        logger.info(f"User {user.id} sent a {file_type} and is now awaiting a name.")
         await update.message.reply_text(
-            f"Received your {file_type} message! Its file ID is `{file_id}`. "
-            "You can now use me in inline mode to share it (if implemented)."
+            f"Received your {file_type} message! What name would you like to give it for future search? "
+            "(e.g., 'My funny voice note', 'Meeting minutes audio')"
         )
-        # Note: Telegram's cached file IDs are global. You don't need to download
-        # and re-upload if you just want to share the cached ID.
-        # If you needed to process the file content, you would:
-        # new_file = await context.bot.get_file(file_id)
-        # file_path = os.path.join(AUDIO_STORAGE, f"{uuid4()}.{file_type}")
-        # await new_file.download_to_drive(file_path)
-        # logger.info(f"Downloaded {file_type} to {file_path}")
+
+async def handle_audio_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the text message that is expected to be the name for the audio."""
+    user = update.effective_user
+    if context.user_data.get('awaiting_audio_name'):
+        audio_name = update.message.text.strip()
+        file_id = context.user_data.pop('pending_audio_file_id', None)
+        file_type = context.user_data.pop('pending_audio_file_type', None)
+        context.user_data.pop('awaiting_audio_name', None) # Clear the flag
+
+        if audio_name and file_id and file_type:
+            # Store the audio details globally in bot_data
+            # Using a list of dictionaries to store multiple cached audios
+            cached_audios = context.bot_data.setdefault('user_cached_audios', [])
+            cached_audios.append({
+                'name': audio_name,
+                'file_id': file_id,
+                'type': file_type,
+                'user_id': user.id # Store user ID if you want to filter by user later
+            })
+            logger.info(f"Saved {file_type} '{audio_name}' (ID: {file_id}) for user {user.id}.")
+            await update.message.reply_text(f"Saved your {file_type} as '{audio_name}'! You can now use it in inline mode.")
+        else:
+            logger.warning(f"User {user.id} provided name '{audio_name}' but no pending audio found.")
+            await update.message.reply_text("Something went wrong. Please send your audio again before naming it.")
+    else:
+        # If not awaiting a name, this text message might be for something else, or just ignored.
+        # For now, we'll just log it.
+        logger.info(f"Received unexpected text from {user.id}: '{update.message.text}'")
+        # You might want to add a default text handler here if needed.
 
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles inline queries to suggest cached voice/audio messages."""
-    query = update.inline_query.query
+    query = update.inline_query.query.lower() # Convert query to lowercase for case-insensitive search
     results = []
 
-    # In a real application, you would query a database here
-    # to find cached voice/audio messages belonging to the user
-    # or public ones. For demonstration, we'll use a placeholder.
+    # Retrieve cached audios from bot_data
+    cached_audios = context.bot_data.get('user_cached_audios', [])
+    
+    # Filter audios based on the query
+    filtered_audios = [
+        item for item in cached_audios
+        if query in item['name'].lower() or not query # Match name or show all if query is empty
+    ]
 
-    # Example: If you stored file_ids, you could retrieve them.
-    # For now, let's just offer a dummy result or filter based on query.
-    # This part needs to be connected to your actual storage of cached IDs.
-
-    # Dummy cached voice/audio for demonstration purposes
-    # Replace with actual cached file_ids from your storage
-    dummy_voice_file_id = "AwACAgIAAxkBAAIGyGZl2gAB0h9iW2e-cQ_b7s19S89zAAJ6NAAC9QoBS1j3eO4-C4QzNAQ" # Replace with a real cached voice ID
-    dummy_audio_file_id = "CQACAgIAAxkBAAIGyWZl2gAB0y9iW2e-cQ_b7s19S89zAAJ6NAAC9QoBS1j3eO4-C4QzNAQ" # Replace with a real cached audio ID
-
-    if "voice" in query.lower() or not query:
-        results.append(
-            InlineQueryResultCachedVoice(
-                id=str(uuid4()),
-                voice_file_id=dummy_voice_file_id,
-                title="My Cached Voice Message (Dummy)", # 'title' is required by some versions
-                caption="This is a dummy voice message."
+    for item in filtered_audios:
+        if item['type'] == "voice":
+            results.append(
+                InlineQueryResultCachedVoice(
+                    id=str(uuid4()), # Unique ID for each result
+                    voice_file_id=item['file_id'],
+                    title=item['name'], # 'title' is required for InlineQueryResultCachedVoice
+                    caption=f"Voice: {item['name']}"
+                )
             )
-        )
-    if "audio" in query.lower() or not query:
-        results.append(
-            InlineQueryResultCachedAudio(
-                id=str(uuid4()),
-                audio_file_id=dummy_audio_file_id,
-                title="My Cached Audio File (Dummy)", # 'title' is required by some versions
-                caption="This is a dummy audio file."
+        elif item['type'] == "audio":
+            results.append(
+                InlineQueryResultCachedAudio(
+                    id=str(uuid4()), # Unique ID for each result
+                    audio_file_id=item['file_id'],
+                    title=item['name'], # 'title' is required for InlineQueryResultCachedAudio
+                    caption=f"Audio: {item['name']}"
+                )
             )
-        )
 
     await update.inline_query.answer(results, cache_time=0)
-    logger.info(f"Inline query from {update.effective_user.first_name} ({update.effective_user.id}): '{query}'")
+    logger.info(f"Inline query from {update.effective_user.first_name} ({update.effective_user.id}): '{query}' - {len(results)} results.")
 
 
 # --- Health Check Server ---
@@ -126,7 +148,10 @@ async def run_server():
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
+    # Handler for voice/audio messages - MUST be before the generic text handler
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
+    # Handler for text messages (audio names) - MUST be after command handlers
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_audio_name))
     application.add_handler(InlineQueryHandler(inline_query)) # Add inline query handler
     
     # Start health server using aiohttp
