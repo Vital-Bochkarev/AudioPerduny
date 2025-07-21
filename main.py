@@ -140,33 +140,37 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if file_id:
         context.user_data['pending_audio_file_id'] = file_id
         context.user_data['pending_audio_file_type'] = file_type
-        context.user_data['state'] = 'awaiting_audio_name'
-        logger.info(f"User {user.id} sent a {file_type} and is now awaiting audio name.")
-        await update.message.reply_text("Получил голосовое! Введи название для поиска")
+        # Change the initial state to awaiting_author_name
+        context.user_data['state'] = 'awaiting_author_name'
+        logger.info(f"User {user.id} sent a {file_type} and is now awaiting author name.")
+        # Change the initial prompt to ask for author
+        await update.message.reply_text("Получил голосовое! Теперь введи автора")
 
 async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles text input based on the current state of the conversation."""
     user = update.effective_user
     current_state = context.user_data.get('state')
 
-    if current_state == 'awaiting_audio_name':
-        audio_name = update.message.text.strip()
-        if audio_name:
-            context.user_data['temp_audio_name'] = audio_name
-            context.user_data['state'] = 'awaiting_author_name'
-            logger.info(f"User {user.id} provided audio name: '{audio_name}'. Now awaiting author name.")
-            await update.message.reply_text("Теперь введи автора")
-        else:
-            await update.message.reply_text("Введи подходящее название")
-    
-    elif current_state == 'awaiting_author_name':
+    # Handle author input first
+    if current_state == 'awaiting_author_name':
         author_name = update.message.text.strip()
+        if author_name:
+            context.user_data['temp_author_name'] = author_name # Store author temporarily
+            context.user_data['state'] = 'awaiting_audio_name' # Move to next state
+            logger.info(f"User {user.id} provided author name: '{author_name}'. Now awaiting audio name.")
+            await update.message.reply_text("Отлично! Теперь введи название для поиска")
+        else:
+            await update.message.reply_text("Пожалуйста, введи автора.")
+    
+    # Handle audio name input second
+    elif current_state == 'awaiting_audio_name':
+        audio_name = update.message.text.strip()
         file_id = context.user_data.pop('pending_audio_file_id', None)
         file_type = context.user_data.pop('pending_audio_file_type', None)
-        audio_name = context.user_data.pop('temp_audio_name', None)
+        author_name = context.user_data.pop('temp_author_name', None) # Retrieve author
         context.user_data.pop('state', None) # Clear the state
 
-        if author_name and file_id and file_type and audio_name:
+        if audio_name and file_id and file_type and author_name:
             # Store the audio details in the global list
             global cached_audios_data
             cached_audios_data.append({
@@ -183,7 +187,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 "Можешь теперь пересылать его в чате, указав имя бота через @"
             )
         else:
-            logger.warning(f"User {user.id} provided author '{author_name}' but missing other audio details.")
+            logger.warning(f"User {user.id} provided audio name '{audio_name}' but missing other audio details.")
             await update.message.reply_text("Что-то пошло не так, повтори с начала")
     
     else:
