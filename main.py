@@ -27,6 +27,13 @@ TOKEN = os.getenv('BOT_TOKEN')
 HEALTH_CHECK_PORT = 8080
 AUDIO_METADATA_FILE = os.path.join(AUDIO_STORAGE, 'audio_metadata.json')
 
+# New: Authorized users list
+# Get AUTHORIZED_USERS from environment variable, split by comma, and convert to integers.
+# If not set, default to an empty list (no one authorized by default).
+# Example: AUTHORIZED_USERS="123456789,987654321"
+AUTHORIZED_USERS_STR = os.getenv('AUTHORIZED_USERS')
+AUTHORIZED_USERS = [int(uid.strip()) for uid in AUTHORIZED_USERS_STR.split(',') if uid.strip()] if AUTHORIZED_USERS_STR else []
+
 # Global variable to hold cached audio data
 cached_audios_data = []
 
@@ -62,8 +69,19 @@ def save_audio_metadata():
 # --- Telegram Bot Handlers ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Sends a welcome message when the /start command is issued."""
-    await update.message.reply_text("🎤 Привет! Перешли мне голосовое сообщение или аудио файл, и я помогу тебе поделиться ими!")
+    """Sends a welcome message when the /start command is issued, with authorization check."""
+    user_id = update.effective_user.id
+    if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
+        # Message for unauthorized users
+        await update.message.reply_text(
+            "Приветствую. Чтобы воспользоваться ботом, в любом чате набери @Perduny_bot и выбери голосовое для отправки. Этот чат доступен только администратору для добавления и удаления голосовых."
+        )
+        logger.info(f"Unauthorized user {user_id} started the bot.")
+    else:
+        # Existing welcome message for authorized users
+        await update.message.reply_text("🎤 Привет! Перешли мне голосовое сообщение или аудио файл, и я помогу тебе поделиться ими!")
+        logger.info(f"Authorized user {user_id} started the bot.")
+
 
 async def list_audios_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Lists all saved audio files."""
@@ -85,12 +103,19 @@ async def delete_audio_command(update: Update, context: ContextTypes.DEFAULT_TYP
     """Deletes a saved audio file by its file_id."""
     global cached_audios_data
     
+    # New: Authorization check for delete command
+    user_id = update.effective_user.id
+    if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
+        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+        logger.warning(f"Unauthorized attempt to delete audio by user: {user_id}")
+        return
+
     if not context.args:
         await update.message.reply_text("Пожалуйста, укажите ID аудио для удаления. Используйте /list, чтобы получить список ID.")
         return
     
     audio_id_to_delete = context.args[0].strip()
-    logger.info(f"Attempting to delete audio with ID: '{audio_id_to_delete}'")
+    logger.info(f"Attempting to delete audio with ID: '{audio_id_to_delete}' by user: {user_id}")
     
     original_count = len(cached_audios_data)
     
@@ -119,6 +144,13 @@ async def delete_audio_command(update: Update, context: ContextTypes.DEFAULT_TYP
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles incoming voice messages and audio files."""
     user = update.effective_user
+
+    # New: Authorization check for adding audio
+    if AUTHORIZED_USERS and user.id not in AUTHORIZED_USERS:
+        await update.message.reply_text("У вас нет прав для добавления аудио.")
+        logger.warning(f"Unauthorized attempt to add audio by user: {user.id}")
+        return
+
     file_id = None
     file_type = None
     duration = 0
@@ -251,8 +283,8 @@ async def run_server():
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("list", list_audios_command)) # Renamed handler
-    application.add_handler(CommandHandler("delete", delete_audio_command)) # Renamed handler
+    application.add_handler(CommandHandler("list", list_audios_command))
+    application.add_handler(CommandHandler("delete", delete_audio_command))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
     application.add_handler(InlineQueryHandler(inline_query))
