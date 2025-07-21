@@ -65,7 +65,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a welcome message when the /start command is issued."""
     await update.message.reply_text("🎤 Привет! Перешли мне голосовое сообщение или аудио файл, и я помогу тебе поделиться ими!")
 
-async def list_audios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def list_audios_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Lists all saved audio files."""
     global cached_audios_data
     if not cached_audios_data:
@@ -81,26 +81,38 @@ async def list_audios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     
     await update.message.reply_text(message_text, parse_mode='Markdown')
 
-async def delete_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def delete_audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Deletes a saved audio file by its file_id."""
     global cached_audios_data
     
     if not context.args:
-        await update.message.reply_text("Пожалуйста, укажите ID аудио для удаления. Используйте /list_audios, чтобы получить список ID.")
+        await update.message.reply_text("Пожалуйста, укажите ID аудио для удаления. Используйте /list, чтобы получить список ID.")
         return
     
     audio_id_to_delete = context.args[0].strip()
+    logger.info(f"Attempting to delete audio with ID: '{audio_id_to_delete}'")
     
     original_count = len(cached_audios_data)
-    # Filter out the audio with the matching file_id
-    cached_audios_data = [item for item in cached_audios_data if item.get('file_id') != audio_id_to_delete]
     
-    if len(cached_audios_data) < original_count:
+    new_cached_audios_data = []
+    found_and_deleted = False
+    for item in cached_audios_data:
+        current_file_id = item.get('file_id')
+        logger.info(f"Comparing '{audio_id_to_delete}' with existing ID: '{current_file_id}'")
+        if current_file_id == audio_id_to_delete:
+            found_and_deleted = True
+            logger.info(f"Match found! Deleting audio: {item.get('name')} by {item.get('author')}")
+        else:
+            new_cached_audios_data.append(item)
+            
+    cached_audios_data = new_cached_audios_data # Update the global list
+
+    if found_and_deleted:
         save_audio_metadata() # Save changes to the file
         await update.message.reply_text(f"Аудио с ID `{audio_id_to_delete}` успешно удалено.")
         logger.info(f"Audio with ID {audio_id_to_delete} deleted by user {update.effective_user.id}.")
     else:
-        await update.message.reply_text(f"Аудио с ID `{audio_id_to_delete}` не найдено.")
+        await update.message.reply_text(f"Аудио с ID `{audio_id_to_delete}` не найдено. Проверьте правильность ID.")
         logger.warning(f"Attempted to delete non-existent audio with ID {audio_id_to_delete} by user {update.effective_user.id}.")
 
 
@@ -235,8 +247,8 @@ async def run_server():
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("list_audios", list_audios)) # New handler
-    application.add_handler(CommandHandler("delete_audio", delete_audio)) # New handler
+    application.add_handler(CommandHandler("list", list_audios_command)) # Renamed handler
+    application.add_handler(CommandHandler("delete", delete_audio_command)) # Renamed handler
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
     application.add_handler(InlineQueryHandler(inline_query))
