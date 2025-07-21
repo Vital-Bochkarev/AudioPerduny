@@ -65,6 +65,45 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a welcome message when the /start command is issued."""
     await update.message.reply_text("🎤 Привет! Перешли мне голосовое сообщение или аудио файл, и я помогу тебе поделиться ими!")
 
+async def list_audios(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Lists all saved audio files."""
+    global cached_audios_data
+    if not cached_audios_data:
+        await update.message.reply_text("Пока нет сохраненных аудио.")
+        return
+
+    message_text = "Сохраненные аудио:\n\n"
+    for i, item in enumerate(cached_audios_data):
+        # Using the file_id as the unique identifier for deletion
+        message_text += f"{i+1}. ID: `{item.get('file_id', 'N/A')}`\n" \
+                        f"   Автор: {item.get('author', 'Неизвестный автор')}\n" \
+                        f"   Название: {item.get('name', 'Без названия')}\n\n"
+    
+    await update.message.reply_text(message_text, parse_mode='Markdown')
+
+async def delete_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Deletes a saved audio file by its file_id."""
+    global cached_audios_data
+    
+    if not context.args:
+        await update.message.reply_text("Пожалуйста, укажите ID аудио для удаления. Используйте /list_audios, чтобы получить список ID.")
+        return
+    
+    audio_id_to_delete = context.args[0].strip()
+    
+    original_count = len(cached_audios_data)
+    # Filter out the audio with the matching file_id
+    cached_audios_data = [item for item in cached_audios_data if item.get('file_id') != audio_id_to_delete]
+    
+    if len(cached_audios_data) < original_count:
+        save_audio_metadata() # Save changes to the file
+        await update.message.reply_text(f"Аудио с ID `{audio_id_to_delete}` успешно удалено.")
+        logger.info(f"Audio with ID {audio_id_to_delete} deleted by user {update.effective_user.id}.")
+    else:
+        await update.message.reply_text(f"Аудио с ID `{audio_id_to_delete}` не найдено.")
+        logger.warning(f"Attempted to delete non-existent audio with ID {audio_id_to_delete} by user {update.effective_user.id}.")
+
+
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles incoming voice messages and audio files."""
     user = update.effective_user
@@ -156,15 +195,15 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         audio_name = item.get('name', 'Unknown Name')
         author_name = item.get('author', 'Unknown Author')
         
-        # Combine name and author into the title
-        display_title = f"{audio_name} by {author_name}"
+        # Combine author and name into the title, separated by " - "
+        display_title = f"{author_name} - {audio_name}"
         
         if item.get('type') == "voice":
             results.append(
                 InlineQueryResultCachedVoice(
                     id=str(uuid4()), # Unique ID for each result
                     voice_file_id=item['file_id'],
-                    title=display_title # Combined name and author
+                    title=display_title # Combined author and name
                 )
             )
         elif item.get('type') == "audio":
@@ -172,7 +211,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 InlineQueryResultCachedAudio(
                     id=str(uuid4()), # Unique ID for each result
                     audio_file_id=item['file_id'],
-                    title=display_title # Combined name and author
+                    title=display_title # Combined author and name
                 )
             )
 
@@ -196,6 +235,8 @@ async def run_server():
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("list_audios", list_audios)) # New handler
+    application.add_handler(CommandHandler("delete_audio", delete_audio)) # New handler
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
     application.add_handler(InlineQueryHandler(inline_query))
