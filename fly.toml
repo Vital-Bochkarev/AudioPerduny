@@ -24,11 +24,6 @@ app = "perduny-bot"
   #   port = 443
   #   handlers = ["tls", "http"]
 
-[[http_service.checks]]
-  interval = "15s"
-  timeout = "5s"
-  path = "/healthz"
-
 [mounts]
   source="my_audio_volume"
   destination="/app/audio_messages" # This should match your AUDIO_STORAGE path
