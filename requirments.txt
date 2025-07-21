@@ -1,2 +1,4 @@
 python-telegram-bot==20.7
-aiohttp>=3.8.0
+aiohttp
+firebase-admin
+google-cloud-firestore
