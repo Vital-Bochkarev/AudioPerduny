@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from uuid import uuid4
 from telegram import Update, InlineQueryResultCachedVoice, InlineQueryResultCachedAudio
 from telegram.ext import (
@@ -11,6 +12,7 @@ from telegram.ext import (
     CallbackContext,
     ContextTypes
 )
+from aiohttp import web
 
 # Configure logging
 logging.basicConfig(
@@ -22,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 AUDIO_STORAGE = 'audio_messages'
 TOKEN = os.getenv('BOT_TOKEN')  # From Fly.io secrets
+HEALTH_CHECK_PORT = 8080
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send welcome message"""
@@ -91,27 +94,38 @@ async def inline_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     await update.inline_query.answer(results, cache_time=0)
 
-async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Endpoint for Fly.io health checks"""
-    await update.message.reply_text("🟢 Bot is running")
+async def health_check(request):
+    """Health check endpoint for Fly.io"""
+    return web.Response(text="OK")
 
-def main() -> None:
-    """Start the bot"""
+async def run_health_server():
+    """Run health check server in background"""
+    app = web.Application()
+    app.router.add_get('/healthz', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', HEALTH_CHECK_PORT)
+    await site.start()
+    logger.info(f"Health check server running on port {HEALTH_CHECK_PORT}")
+
+async def main():
+    """Start both Telegram bot and health server"""
     # Create storage directory
     os.makedirs(AUDIO_STORAGE, exist_ok=True)
 
-    # Create Application
-    application = Application.builder().token(TOKEN).build()
+    # Start health server
+    health_task = asyncio.create_task(run_health_server())
 
-    # Add handlers
+    # Start Telegram bot
+    application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
     application.add_handler(InlineQueryHandler(inline_search))
-    application.add_handler(CommandHandler("healthz", health_check))
-
-    # Start polling
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    
+    try:
+        await application.run_polling()
+    finally:
+        await health_task.cancel()
 
 if __name__ == "__main__":
-    # This keeps the bot running indefinitely
-    main()
+    asyncio.run(main())

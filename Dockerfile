@@ -4,6 +4,6 @@ WORKDIR /app
 COPY . .
 
 RUN pip install python-telegram-bot
-RUN mkdir -p audio_messages
 
-CMD ["python", "main.py"]
+# Run both services
+CMD bash -c "python health_server.py & python main.py"
