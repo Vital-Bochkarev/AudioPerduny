@@ -5,6 +5,6 @@ app = "perduny-bot"
   force_https = true
 
 [[http_service.checks]]
-  interval = "10s"
-  timeout = "2s"
+  interval = "15s"
+  timeout = "5s"
   path = "/healthz"
