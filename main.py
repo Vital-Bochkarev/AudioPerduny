@@ -92,7 +92,8 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             InlineQueryResultCachedVoice(
                 id=str(uuid4()),
                 voice_file_id=dummy_voice_file_id,
-                caption="This is a dummy voice message." # Removed 'title'
+                title="My Cached Voice Message (Dummy)", # Re-added 'title'
+                caption="This is a dummy voice message."
             )
         )
     if "audio" in query.lower() or not query:
@@ -100,7 +101,8 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             InlineQueryResultCachedAudio(
                 id=str(uuid4()),
                 audio_file_id=dummy_audio_file_id,
-                caption="This is a dummy audio file." # Removed 'title'
+                title="My Cached Audio File (Dummy)", # Re-added 'title'
+                caption="This is a dummy audio file."
             )
         )
 
