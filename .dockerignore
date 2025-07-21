@@ -1,0 +1,7 @@
+# flyctl launch added from .gitignore
+**/bot_token.txt
+**/audio_messages
+**/__pycache__
+**/*.pyc
+**/.env
+fly.toml
