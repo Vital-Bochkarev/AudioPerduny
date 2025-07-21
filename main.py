@@ -114,8 +114,8 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 InlineQueryResultCachedVoice(
                     id=str(uuid4()), # Unique ID for each result
                     voice_file_id=item['file_id'],
-                    title=item['name'], # 'title' is required for InlineQueryResultCachedVoice
-                    caption=f"Voice: {item['name']}"
+                    title=item['name'] # 'title' is required for InlineQueryResultCachedVoice
+                    # Removed 'caption' for no description
                 )
             )
         elif item['type'] == "audio":
@@ -123,8 +123,8 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 InlineQueryResultCachedAudio(
                     id=str(uuid4()), # Unique ID for each result
                     audio_file_id=item['file_id'],
-                    title=item['name'], # 'title' is required for InlineQueryResultCachedAudio
-                    caption=f"Audio: {item['name']}"
+                    title=item['name'] # 'title' is required for InlineQueryResultCachedAudio
+                    # Removed 'caption' for no description
                 )
             )
 
