@@ -1,8 +1,17 @@
 app = "perduny-bot"
 
-[http_service]
+[[services]]
   internal_port = 8080
-  checks = [{ port = 8080, path = "/healthz", interval = "10s", timeout = "2s" }]
+  protocol = "tcp"
+  # Add or ensure this section is correctly formatted as an array of tables
+  [[services.checks]]
+    port = 8080
+    path = "/healthz"
+    interval = "10s"
+    timeout = "2s"
+    # You can add other check parameters here if needed, e.g.:
+    # grace_period = "5s"
+    # restart_limit = 3
 
 [[http_service.checks]]
   interval = "15s"
