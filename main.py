@@ -54,45 +54,62 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     if file_id:
-        # Store file_id and file_type in user_data to await the name
+        # Store file_id and file_type in user_data and set state to awaiting name
         context.user_data['pending_audio_file_id'] = file_id
         context.user_data['pending_audio_file_type'] = file_type
-        context.user_data['awaiting_audio_name'] = True
-        logger.info(f"User {user.id} sent a {file_type} and is now awaiting a name.")
+        context.user_data['state'] = 'awaiting_audio_name'
+        logger.info(f"User {user.id} sent a {file_type} and is now awaiting audio name.")
         await update.message.reply_text(
             f"Received your {file_type} message! What name would you like to give it for future search? "
             "(e.g., 'My funny voice note', 'Meeting minutes audio')"
         )
 
-async def handle_audio_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles the text message that is expected to be the name for the audio."""
+async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles text input based on the current state of the conversation."""
     user = update.effective_user
-    if context.user_data.get('awaiting_audio_name'):
+    current_state = context.user_data.get('state')
+
+    if current_state == 'awaiting_audio_name':
         audio_name = update.message.text.strip()
+        if audio_name:
+            context.user_data['temp_audio_name'] = audio_name
+            context.user_data['state'] = 'awaiting_author_name'
+            logger.info(f"User {user.id} provided audio name: '{audio_name}'. Now awaiting author name.")
+            await update.message.reply_text("Great! Now, what is the author's name for this audio? (e.g., @vosticks, John Doe)")
+        else:
+            await update.message.reply_text("Please provide a valid name for the audio.")
+    
+    elif current_state == 'awaiting_author_name':
+        author_name = update.message.text.strip()
         file_id = context.user_data.pop('pending_audio_file_id', None)
         file_type = context.user_data.pop('pending_audio_file_type', None)
-        context.user_data.pop('awaiting_audio_name', None) # Clear the flag
+        audio_name = context.user_data.pop('temp_audio_name', None)
+        context.user_data.pop('state', None) # Clear the state
 
-        if audio_name and file_id and file_type:
+        if author_name and file_id and file_type and audio_name:
             # Store the audio details globally in bot_data
-            # Using a list of dictionaries to store multiple cached audios
             cached_audios = context.bot_data.setdefault('user_cached_audios', [])
             cached_audios.append({
                 'name': audio_name,
+                'author': author_name,
                 'file_id': file_id,
                 'type': file_type,
-                'user_id': user.id # Store user ID if you want to filter by user later
+                'user_id': user.id
             })
-            logger.info(f"Saved {file_type} '{audio_name}' (ID: {file_id}) for user {user.id}.")
-            await update.message.reply_text(f"Saved your {file_type} as '{audio_name}'! You can now use it in inline mode.")
+            logger.info(f"Saved {file_type} '{audio_name}' by '{author_name}' (ID: {file_id}) for user {user.id}.")
+            await update.message.reply_text(
+                f"Saved your {file_type} as '{audio_name}' by '{author_name}'! "
+                "You can now use it in inline mode."
+            )
         else:
-            logger.warning(f"User {user.id} provided name '{audio_name}' but no pending audio found.")
-            await update.message.reply_text("Something went wrong. Please send your audio again before naming it.")
+            logger.warning(f"User {user.id} provided author '{author_name}' but missing other audio details.")
+            await update.message.reply_text("Something went wrong. Please send your audio again to restart the process.")
+    
     else:
-        # If not awaiting a name, this text message might be for something else, or just ignored.
-        # For now, we'll just log it.
-        logger.info(f"Received unexpected text from {user.id}: '{update.message.text}'")
-        # You might want to add a default text handler here if needed.
+        # If no specific state is active, this is a general text message.
+        logger.info(f"Received general text from {user.id}: '{update.message.text}'")
+        # You can add a default response here if you wish, e.g.:
+        # await update.message.reply_text("I'm not sure how to respond to that. Send me a voice message or audio file!")
 
 async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles inline queries to suggest cached voice/audio messages."""
@@ -102,20 +119,22 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Retrieve cached audios from bot_data
     cached_audios = context.bot_data.get('user_cached_audios', [])
     
-    # Filter audios based on the query
+    # Filter audios based on the query (match name or author)
     filtered_audios = [
         item for item in cached_audios
-        if query in item['name'].lower() or not query # Match name or show all if query is empty
+        if query in item['name'].lower() or query in item['author'].lower() or not query # Match name/author or show all
     ]
 
     for item in filtered_audios:
+        # Construct the title to include both name and author
+        display_title = f"{item['name']} by {item['author']}"
+        
         if item['type'] == "voice":
             results.append(
                 InlineQueryResultCachedVoice(
                     id=str(uuid4()), # Unique ID for each result
                     voice_file_id=item['file_id'],
-                    title=item['name'] # 'title' is required for InlineQueryResultCachedVoice
-                    # Removed 'caption' for no description
+                    title=display_title # Use the combined title
                 )
             )
         elif item['type'] == "audio":
@@ -123,8 +142,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 InlineQueryResultCachedAudio(
                     id=str(uuid4()), # Unique ID for each result
                     audio_file_id=item['file_id'],
-                    title=item['name'] # 'title' is required for InlineQueryResultCachedAudio
-                    # Removed 'caption' for no description
+                    title=display_title # Use the combined title
                 )
             )
 
@@ -150,8 +168,8 @@ async def run_server():
     application.add_handler(CommandHandler("start", start))
     # Handler for voice/audio messages - MUST be before the generic text handler
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
-    # Handler for text messages (audio names) - MUST be after command handlers
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_audio_name))
+    # Handler for all other text messages (names and authors) - MUST be after command handlers
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
     application.add_handler(InlineQueryHandler(inline_query)) # Add inline query handler
     
     # Start health server using aiohttp
