@@ -566,7 +566,9 @@ async def send_paginated_audios(
     command_message_id: int = None,
 ) -> None:
     """Sends a page of audio files with pagination buttons."""
-    # global cached_audios_data # Removed this line as it's not needed for reading
+    # The 'global cached_audios_data' line was removed from here as it's not needed for reading.
+    # The SyntaxError you observed indicates it might still be present in your deployed code.
+    # Please ensure this line is completely removed from your main.py file.
 
     # Delete the command message if it was passed
     if command_message_id:
