@@ -78,7 +78,7 @@ def save_audio_metadata():
         with open(AUDIO_METADATA_FILE, "w", encoding="utf-8") as f:
             json.dump(cached_audios_data, f, ensure_ascii=False, indent=4)
         logger.info(
-            f"Saved {len(cached_audios_data)} audio entries to {AUDIO_METADATA_FILE}"
+            f"Saved {len(cached_audios_data)} audio entries to {AUDIO_METATA_FILE}"
         )
     except Exception as e:
         logger.error(f"Error saving audio metadata: {e}")
