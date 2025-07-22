@@ -343,9 +343,10 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def voices_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends the first page of interactive audio list."""
+    # Pass update.message.message_id as the message_id to allow editing the initial command message
     await send_paginated_audios(
-        update.effective_chat.id, context, page=0
-    )  # Start from page 0
+        update.effective_chat.id, context, page=0, message_id=update.message.message_id
+    )
 
 
 async def send_paginated_audios(
@@ -354,27 +355,22 @@ async def send_paginated_audios(
     """Sends a page of audio files with pagination buttons."""
     global cached_audios_data
 
-    if not cached_audios_data:
-        # If there are no audios, send a message and return.
-        # If this was a button press, try to edit the message to say no audios.
-        if message_id:
-            try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text="Пока нет сохраненных аудио для отображения.",
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Could not edit message {message_id} to indicate no audios: {e}"
-                )
-                await context.bot.send_message(
-                    chat_id=chat_id, text="Пока нет сохраненных аудио для отображения."
-                )
-        else:
-            await context.bot.send_message(
-                chat_id=chat_id, text="Пока нет сохраненных аудио для отображения."
+    # Attempt to delete the previous pagination message if provided
+    if message_id:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            logger.info(
+                f"Deleted previous pagination message {message_id} in chat {chat_id}."
             )
+        except Exception as e:
+            logger.warning(
+                f"Could not delete previous pagination message {message_id}: {e}"
+            )
+
+    if not cached_audios_data:
+        await context.bot.send_message(
+            chat_id=chat_id, text="Пока нет сохраненных аудио для отображения."
+        )
         return
 
     total_audios = len(cached_audios_data)
@@ -388,25 +384,9 @@ async def send_paginated_audios(
             page = max(0, min(page, total_pages - 1))  # Adjust to valid page
         else:
             # If no audios left after adjustment, handle as empty
-            if message_id:
-                try:
-                    await context.bot.edit_message_text(
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        text="Пока нет сохраненных аудио для отображения.",
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Could not edit message {message_id} to indicate no audios after adjustment: {e}"
-                    )
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text="Пока нет сохраненных аудио для отображения.",
-                    )
-            else:
-                await context.bot.send_message(
-                    chat_id=chat_id, text="Пока нет сохраненных аудио для отображения."
-                )
+            await context.bot.send_message(
+                chat_id=chat_id, text="Пока нет сохраненных аудио для отображения."
+            )
             return
 
     start_index = page * AUDIOS_PER_PAGE
@@ -449,27 +429,11 @@ async def send_paginated_audios(
 
     reply_markup = InlineKeyboardMarkup([keyboard])
 
-    # Send or edit the pagination message
+    # Always send a NEW pagination message at the end
     pagination_text = f"Страница {page + 1} из {total_pages}"
-    if message_id:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=pagination_text,
-                reply_markup=reply_markup,
-            )
-        except Exception as e:
-            logger.warning(
-                f"Could not edit message {message_id}: {e}. Sending new message instead."
-            )
-            await context.bot.send_message(
-                chat_id=chat_id, text=pagination_text, reply_markup=reply_markup
-            )
-    else:
-        await context.bot.send_message(
-            chat_id=chat_id, text=pagination_text, reply_markup=reply_markup
-        )
+    await context.bot.send_message(
+        chat_id=chat_id, text=pagination_text, reply_markup=reply_markup
+    )
 
 
 async def pagination_callback_handler(
@@ -484,11 +448,12 @@ async def pagination_callback_handler(
         try:
             page = int(callback_data.split("_")[2])
             chat_id = query.message.chat.id
-            message_id = query.message.message_id  # Get message_id for editing
+            message_id = query.message.message_id  # Get message_id for deleting
             await send_paginated_audios(chat_id, context, page, message_id)
         except ValueError:
             logger.error(f"Invalid pagination callback data: {callback_data}")
-            await query.edit_message_text(
+            # If editing fails, send a new message to inform the user
+            await query.message.reply_text(
                 "Произошла ошибка при навигации по страницам."
             )
 
