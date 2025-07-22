@@ -3,11 +3,18 @@ import logging
 import asyncio
 import json
 from uuid import uuid4
-from telegram import Update, InlineQueryResultCachedVoice, InlineQueryResultCachedAudio
+from telegram import (
+    Update,
+    InlineQueryResultCachedVoice,
+    InlineQueryResultCachedAudio,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,  # New: for handling button presses
     filters,
     InlineQueryHandler,
     ContextTypes,
@@ -25,6 +32,7 @@ AUDIO_STORAGE = "audio_messages"  # This is the mounted persistent volume path
 TOKEN = os.getenv("BOT_TOKEN")
 HEALTH_CHECK_PORT = 8080
 AUDIO_METADATA_FILE = os.path.join(AUDIO_STORAGE, "audio_metadata.json")
+AUDIOS_PER_PAGE = 10  # Number of audios to display per page
 
 # New: Authorized users list
 # Get AUTHORIZED_USERS from environment variable, split by comma, and convert to integers.
@@ -99,8 +107,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def list_audios_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Lists all saved audio files."""
+    """Lists all saved audio files (admin-only)."""
     global cached_audios_data
+
+    user_id = update.effective_user.id
+    if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
+        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+        logger.warning(f"Unauthorized attempt to list audios by user: {user_id}")
+        return
+
     if not cached_audios_data:
         await update.message.reply_text("Пока нет сохраненных аудио.")
         return
@@ -120,10 +135,10 @@ async def list_audios_command(
 async def delete_audio_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Deletes a saved audio file by its file_id."""
+    """Deletes a saved audio file by its file_id (admin-only)."""
     global cached_audios_data
 
-    # New: Authorization check for delete command
+    # Authorization check for delete command
     user_id = update.effective_user.id
     if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
         await update.message.reply_text("У вас нет прав для выполнения этой команды.")
@@ -181,7 +196,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Handles incoming voice messages and audio files."""
     user = update.effective_user
 
-    # New: Authorization check for adding audio
+    # Authorization check for adding audio
     if AUTHORIZED_USERS and user.id not in AUTHORIZED_USERS:
         await update.message.reply_text("У вас нет прав для добавления аудио.")
         logger.warning(f"Unauthorized attempt to add audio by user: {user.id}")
@@ -326,6 +341,108 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+async def voices_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Sends the first page of interactive audio list."""
+    await send_paginated_audios(update, context, page=0)  # Start from page 0
+
+
+async def send_paginated_audios(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, page: int
+) -> None:
+    """Sends a page of audio files with pagination buttons."""
+    global cached_audios_data
+
+    if not cached_audios_data:
+        await update.message.reply_text("Пока нет сохраненных аудио для отображения.")
+        return
+
+    total_audios = len(cached_audios_data)
+    total_pages = (
+        total_audios + AUDIOS_PER_PAGE - 1
+    ) // AUDIOS_PER_PAGE  # Ceiling division
+
+    if not (0 <= page < total_pages):
+        # If the page number is out of bounds (e.g., after deleting all audios on a page)
+        # Try to adjust to the last valid page or page 0 if no audios left.
+        if total_pages > 0:
+            page = max(0, min(page, total_pages - 1))
+        else:
+            await update.message.reply_text(
+                "Пока нет сохраненных аудио для отображения."
+            )
+            return
+
+    start_index = page * AUDIOS_PER_PAGE
+    end_index = min(start_index + AUDIOS_PER_PAGE, total_audios)
+
+    audios_to_send = cached_audios_data[start_index:end_index]
+
+    if not audios_to_send:
+        await update.message.reply_text("На этой странице нет аудио.")
+        return
+
+    for item in audios_to_send:
+        caption = f"Автор: {item.get('author', 'Неизвестный автор')}\nНазвание: {item.get('name', 'Без названия')}"
+        try:
+            if item.get("type") == "voice":
+                await context.bot.send_voice(
+                    chat_id=update.effective_chat.id,
+                    voice=item["file_id"],
+                    caption=caption,
+                )
+            elif item.get("type") == "audio":
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=item["file_id"],
+                    caption=caption,
+                )
+        except Exception as e:
+            logger.error(f"Error sending audio (ID: {item['file_id']}): {e}")
+            await update.effective_chat.send_message(
+                f"Не удалось отправить аудио '{item.get('name')}'. Возможно, файл недоступен."
+            )
+            # Optionally, remove the problematic audio from cached_audios_data and save_audio_metadata() here
+
+    # Create pagination buttons
+    keyboard = []
+    if page > 0:
+        keyboard.append(
+            InlineKeyboardButton(
+                "⬅️ Предыдущая", callback_data=f"voices_page_{page - 1}"
+            )
+        )
+    if page < total_pages - 1:
+        keyboard.append(
+            InlineKeyboardButton("Следующая ➡️", callback_data=f"voices_page_{page + 1}")
+        )
+
+    reply_markup = InlineKeyboardMarkup([keyboard])
+
+    # Send pagination message
+    await update.effective_chat.send_message(
+        f"Страница {page + 1} из {total_pages}", reply_markup=reply_markup
+    )
+
+
+async def pagination_callback_handler(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handles callback queries from pagination buttons."""
+    query = update.callback_query
+    await query.answer()  # Acknowledge the callback query
+
+    callback_data = query.data
+    if callback_data.startswith("voices_page_"):
+        try:
+            page = int(callback_data.split("_")[2])
+            await send_paginated_audios(query, context, page)
+        except ValueError:
+            logger.error(f"Invalid pagination callback data: {callback_data}")
+            await query.edit_message_text(
+                "Произошла ошибка при навигации по страницам."
+            )
+
+
 # --- Health Check Server ---
 
 
@@ -347,11 +464,17 @@ async def run_server():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("list", list_audios_command))
     application.add_handler(CommandHandler("delete", delete_audio_command))
+    application.add_handler(
+        CommandHandler("voices", voices_command)
+    )  # New: /voices command
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input)
     )
     application.add_handler(InlineQueryHandler(inline_query))
+    application.add_handler(
+        CallbackQueryHandler(pagination_callback_handler, pattern=r"^voices_page_")
+    )  # New: Callback handler for pagination
 
     # Load audio metadata from file at startup
     load_audio_metadata()
