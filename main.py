@@ -32,7 +32,7 @@ AUDIO_STORAGE = "audio_messages"  # This is the mounted persistent volume path
 TOKEN = os.getenv("BOT_TOKEN")
 HEALTH_CHECK_PORT = 8080
 AUDIO_METADATA_FILE = os.path.join(AUDIO_STORAGE, "audio_metadata.json")
-AUDIOS_PER_PAGE = 10  # Number of audios to display per page
+AUDIOS_PER_PAGE = 5  # Changed from 10 to 5 audios per page
 
 # New: Authorized users list
 # Get AUTHORIZED_USERS from environment variable, split by comma, and convert to integers.
@@ -426,16 +426,20 @@ async def send_paginated_audios(
 
     # Send the audio files for the current page
     for item in audios_to_send:
-        caption = f"Автор: {item.get('author', 'Неизвестный автор')}\nНазвание: {item.get('name', 'Без названия')}"
+        # First, send a text message with Author and Name
+        text_message = f"Автор: {item.get('author', 'Неизвестный автор')}\nНазвание: {item.get('name', 'Без названия')}"
+        await context.bot.send_message(chat_id=chat_id, text=text_message)
+
+        # Then, send the audio file without any description/caption
         try:
             if item.get("type") == "voice":
                 await context.bot.send_voice(
-                    chat_id=chat_id, voice=item["file_id"], caption=caption
-                )
+                    chat_id=chat_id, voice=item["file_id"]
+                )  # No caption here
             elif item.get("type") == "audio":
                 await context.bot.send_audio(
-                    chat_id=chat_id, audio=item["file_id"], caption=caption
-                )
+                    chat_id=chat_id, audio=item["file_id"]
+                )  # No caption here
         except Exception as e:
             logger.error(f"Error sending audio (ID: {item['file_id']}): {e}")
             await context.bot.send_message(
