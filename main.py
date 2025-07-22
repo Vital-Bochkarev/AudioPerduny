@@ -23,7 +23,8 @@ from aiohttp import web
 
 # Configure logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ HEALTH_CHECK_PORT = 8080
 AUDIO_METADATA_FILE = os.path.join(AUDIO_STORAGE, "audio_metadata.json")
 AUDIOS_PER_PAGE = 5
 
-# Authorized users list
+# Authorized users
 AUTHORIZED_USERS_STR = os.getenv("AUTHORIZED_USERS")
 AUTHORIZED_USERS = (
     [int(uid.strip()) for uid in AUTHORIZED_USERS_STR.split(",") if uid.strip()]
@@ -42,14 +43,16 @@ AUTHORIZED_USERS = (
     else []
 )
 
-# Global variable - using singular form consistently
+# Global variable (consistent naming)
 cached_audio_data = []
 
-# --- Persistence Functions ---
+# ======================
+# PERSISTENCE FUNCTIONS
+# ======================
 
 def load_audio_metadata():
     """Load audio metadata from JSON file"""
-    global cached_audio_data  # Must be first line
+    global cached_audio_data
     if os.path.exists(AUDIO_METADATA_FILE):
         try:
             with open(AUDIO_METADATA_FILE, "r", encoding="utf-8") as f:
@@ -64,7 +67,7 @@ def load_audio_metadata():
 
 def save_audio_metadata():
     """Save audio metadata to JSON file"""
-    global cached_audio_data  # Must be first line
+    global cached_audio_data
     try:
         with open(AUDIO_METADATA_FILE, "w", encoding="utf-8") as f:
             json.dump(cached_audio_data, f, ensure_ascii=False, indent=4)
@@ -72,51 +75,58 @@ def save_audio_metadata():
     except Exception as e:
         logger.error(f"Error saving metadata: {e}")
 
-# --- Telegram Handlers ---
+# ======================
+# TELEGRAM HANDLERS
+# ======================
 
-async def list_audios_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Lists all saved audio files"""
-    global cached_audio_data  # Must be first line
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send welcome message"""
     user_id = update.effective_user.id
     if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
-        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
-        return
-
-    if not cached_audio_data:
-        await update.message.reply_text("Пока нет сохраненных аудио.")
-        return
-
-    message_text = "Сохраненные аудио:\n\n"
-    for i, item in enumerate(cached_audio_data):
-        message_text += (
-            f"{i+1}. ID: `{item.get('file_id', 'N/A')}`\n"
-            f"   Автор: {item.get('author', 'Неизвестный автор')}\n"
-            f"   Название: {item.get('name', 'Без названия')}\n\n"
+        await update.message.reply_text(
+            "Приветствую! Используйте @Perduny_bot в чатах для отправки голосовых."
         )
+        return
+    
+    await update.message.reply_text(
+        "🎤 Привет! Я помогу тебе управлять голосовыми сообщениями.\n\n"
+        "Доступные команды:\n"
+        "/add - Добавить аудио\n"
+        "/list - Список аудио\n"
+        "/voices - Интерактивный список"
+    )
 
-    await update.message.reply_text(message_text, parse_mode="Markdown")
+async def add_audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Initiate audio adding process"""
+    global cached_audio_data
+    user = update.effective_user
+    if AUTHORIZED_USERS and user.id not in AUTHORIZED_USERS:
+        await update.message.reply_text("У вас нет прав для этой команды.")
+        return
 
-# [Rest of your handlers... make sure EACH one uses cached_audio_data (singular) 
-# and declares it as global FIRST if modifying it]
+    context.user_data["state"] = "awaiting_audio"
+    await update.message.reply_text("Отправьте голосовое сообщение или аудиофайл")
+
+# [Include all your other handlers here...]
+
+# ======================
+# HEALTH CHECK SERVER
+# ======================
+
+async def health_check(request):
+    return web.Response(text="OK")
 
 async def run_server():
-    """Run both Telegram bot and health server"""
-    # Create application
+    """Run bot and health server"""
+    # Create bot application
     application = Application.builder().token(TOKEN).build()
-
+    
     # Add handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("add", add_audio_command))
-    application.add_handler(CommandHandler("list", list_audios_command))
-    application.add_handler(CommandHandler("delete", delete_audio_command))
-    application.add_handler(CommandHandler("move", move_audio_command))
-    application.add_handler(CommandHandler("voices", voices_command))
-    application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
-    application.add_handler(InlineQueryHandler(inline_query))
-    application.add_handler(CallbackQueryHandler(pagination_callback_handler, pattern=r"^voices_page_"))
+    # [Add all other handlers...]
 
-    # Load data at startup
+    # Load existing data
     load_audio_metadata()
 
     # Start health server
@@ -126,19 +136,20 @@ async def run_server():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", HEALTH_CHECK_PORT)
     await site.start()
-    logger.info(f"Health server started on port {HEALTH_CHECK_PORT}")
 
     # Start bot
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
-    logger.info("Bot started polling")
-
+    
+    logger.info("Bot started successfully!")
+    
     # Keep running
     while True:
         await asyncio.sleep(3600)
 
 if __name__ == "__main__":
+    # Create storage directory if needed
     os.makedirs(AUDIO_STORAGE, exist_ok=True)
     
     if not TOKEN:
