@@ -42,14 +42,14 @@ AUTHORIZED_USERS = (
     else []
 )
 
-# Global variable - corrected spelling to be consistent
+# Global variable - using singular form consistently
 cached_audio_data = []
 
 # --- Persistence Functions ---
 
 def load_audio_metadata():
     """Load audio metadata from JSON file"""
-    global cached_audio_data
+    global cached_audio_data  # Must be first line
     if os.path.exists(AUDIO_METADATA_FILE):
         try:
             with open(AUDIO_METADATA_FILE, "r", encoding="utf-8") as f:
@@ -64,7 +64,7 @@ def load_audio_metadata():
 
 def save_audio_metadata():
     """Save audio metadata to JSON file"""
-    global cached_audio_data
+    global cached_audio_data  # Must be first line
     try:
         with open(AUDIO_METADATA_FILE, "w", encoding="utf-8") as f:
             json.dump(cached_audio_data, f, ensure_ascii=False, indent=4)
@@ -72,7 +72,32 @@ def save_audio_metadata():
     except Exception as e:
         logger.error(f"Error saving metadata: {e}")
 
-# [Rest of your handlers... make sure to update all instances to use cached_audio_data]
+# --- Telegram Handlers ---
+
+async def list_audios_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Lists all saved audio files"""
+    global cached_audio_data  # Must be first line
+    user_id = update.effective_user.id
+    if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
+        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+        return
+
+    if not cached_audio_data:
+        await update.message.reply_text("Пока нет сохраненных аудио.")
+        return
+
+    message_text = "Сохраненные аудио:\n\n"
+    for i, item in enumerate(cached_audio_data):
+        message_text += (
+            f"{i+1}. ID: `{item.get('file_id', 'N/A')}`\n"
+            f"   Автор: {item.get('author', 'Неизвестный автор')}\n"
+            f"   Название: {item.get('name', 'Без названия')}\n\n"
+        )
+
+    await update.message.reply_text(message_text, parse_mode="Markdown")
+
+# [Rest of your handlers... make sure EACH one uses cached_audio_data (singular) 
+# and declares it as global FIRST if modifying it]
 
 async def run_server():
     """Run both Telegram bot and health server"""
