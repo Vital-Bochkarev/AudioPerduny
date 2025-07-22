@@ -93,15 +93,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
         # Message for unauthorized users
         await update.message.reply_text(
-            "Приветствую. Чтобы воспользоваться ботом, в любом чате набери @Perduny_bot и выбери голосовое для отправки. Этот чат доступен только администратору для добавления и удаления голосовых."
+            "Приветствую. Чтобы воспользоваться ботом, в любом чате набери @Perduny_bot и выбери голосовое для отправки.\n"
+            "Отправь в этот чат /voices, чтобы увидеть все доступные голосовые.\n"
+            "Добавление и удаление голосовых доступно только администратору."
         )
         logger.info(f"Unauthorized user {user_id} started the bot.")
     else:
-        # Existing welcome message for authorized users
+        # Existing welcome message for authorized users, now with command suggestions
         await update.message.reply_text(
-            "🎤 Привет! Перешли мне голосовое сообщение или аудио файл, и я помогу тебе поделиться ими!"
+            "🎤 Привет! Я помогу тебе управлять голосовыми сообщениями.\n\n"
+            "Доступные команды:\n"
+            "/add - Добавить новое аудио\n"
+            "/list - Показать список всех сохраненных аудио\n"
+            "/delete <ID> - Удалить аудио по ID\n"
+            "/voices - Просмотреть интерактивный список всех аудио"
         )
         logger.info(f"Authorized user {user_id} started the bot.")
+
+
+async def add_audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Initiates the audio adding process for authorized users."""
+    user = update.effective_user
+    if AUTHORIZED_USERS and user.id not in AUTHORIZED_USERS:
+        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+        logger.warning(f"Unauthorized attempt to use /add by user: {user.id}")
+        return
+
+    context.user_data["state"] = "awaiting_audio_for_add"
+    await update.message.reply_text(
+        "Пожалуйста, отправь мне голосовое сообщение или аудио файл, которое ты хочешь добавить."
+    )
+    logger.info(f"User {user.id} initiated /add command.")
 
 
 async def list_audios_command(
@@ -200,6 +222,14 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if AUTHORIZED_USERS and user.id not in AUTHORIZED_USERS:
         await update.message.reply_text("У вас нет прав для добавления аудио.")
         logger.warning(f"Unauthorized attempt to add audio by user: {user.id}")
+        return
+
+    # New: Check if the user is in the 'awaiting_audio_for_add' state
+    if context.user_data.get("state") != "awaiting_audio_for_add":
+        await update.message.reply_text(
+            "Пожалуйста, используйте команду /add, чтобы добавить новое аудио."
+        )
+        logger.info(f"User {user.id} sent audio without /add command.")
         return
 
     file_id = None
@@ -477,11 +507,12 @@ async def run_server():
 
     # Add handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(
+        CommandHandler("add", add_audio_command)
+    )  # New: /add command
     application.add_handler(CommandHandler("list", list_audios_command))
     application.add_handler(CommandHandler("delete", delete_audio_command))
-    application.add_handler(
-        CommandHandler("voices", voices_command)
-    )  # New: /voices command
+    application.add_handler(CommandHandler("voices", voices_command))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input)
@@ -489,7 +520,7 @@ async def run_server():
     application.add_handler(InlineQueryHandler(inline_query))
     application.add_handler(
         CallbackQueryHandler(pagination_callback_handler, pattern=r"^voices_page_")
-    )  # New: Callback handler for pagination
+    )
 
     # Load audio metadata from file at startup
     load_audio_metadata()
