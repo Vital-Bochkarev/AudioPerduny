@@ -14,7 +14,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
-    CallbackQueryHandler,  # New: for handling button presses
+    CallbackQueryHandler,
     filters,
     InlineQueryHandler,
     ContextTypes,
@@ -35,9 +35,6 @@ AUDIO_METADATA_FILE = os.path.join(AUDIO_STORAGE, "audio_metadata.json")
 AUDIOS_PER_PAGE = 5  # Changed from 10 to 5 audios per page
 
 # New: Authorized users list
-# Get AUTHORIZED_USERS from environment variable, split by comma, and convert to integers.
-# If not set, default to an empty list (no one authorized by default).
-# Example: AUTHORIZED_USERS="123456789,987654321"
 AUTHORIZED_USERS_STR = os.getenv("AUTHORIZED_USERS")
 AUTHORIZED_USERS = (
     [int(uid.strip()) for uid in AUTHORIZED_USERS_STR.split(",") if uid.strip()]
@@ -49,7 +46,6 @@ AUTHORIZED_USERS = (
 cached_audios_data = []
 
 # --- Persistence Functions (File-based) ---
-
 
 def load_audio_metadata():
     """Loads audio metadata from the JSON file on the persistent volume."""
@@ -71,9 +67,9 @@ def load_audio_metadata():
         logger.info("Audio metadata file not found. Starting with empty data.")
         cached_audios_data = []
 
-
 def save_audio_metadata():
     """Saves audio metadata to the JSON file on the persistent volume."""
+    global cached_audios_data
     try:
         with open(AUDIO_METADATA_FILE, "w", encoding="utf-8") as f:
             json.dump(cached_audios_data, f, ensure_ascii=False, indent=4)
@@ -83,15 +79,12 @@ def save_audio_metadata():
     except Exception as e:
         logger.error(f"Error saving audio metadata: {e}")
 
-
 # --- Telegram Bot Handlers ---
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a welcome message when the /start command is issued, with authorization check."""
     user_id = update.effective_user.id
     if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
-        # Message for unauthorized users
         await update.message.reply_text(
             "Приветствую. Чтобы воспользоваться ботом, в любом чате набери @Perduny_bot и выбери голосовое для отправки.\n"
             "Отправь в этот чат /voices, чтобы увидеть все доступные голосовые.\n"
@@ -99,18 +92,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         logger.info(f"Unauthorized user {user_id} started the bot.")
     else:
-        # Existing welcome message for authorized users, now with command suggestions
         await update.message.reply_text(
             "🎤 Привет! Я помогу тебе управлять голосовыми сообщениями.\n\n"
             "Доступные команды:\n"
             "/add - Добавить новое аудио\n"
             "/list - Показать список всех сохраненных аудио\n"
             "/delete <ID> - Удалить аудио по ID\n"
-            "/move <ID> <позиция> - Изменить порядок аудио\n"  # New command added
+            "/move <ID> <позиция> - Изменить порядок аудио\n"
             "/voices - Просмотреть интерактивный список всех аудио"
         )
         logger.info(f"Authorized user {user_id} started the bot.")
-
 
 async def add_audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Initiates the audio adding process for authorized users."""
@@ -126,13 +117,9 @@ async def add_audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
     logger.info(f"User {user.id} initiated /add command.")
 
-
-async def list_audios_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def list_audios_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Lists all saved audio files (admin-only)."""
     global cached_audios_data
-
     user_id = update.effective_user.id
     if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
         await update.message.reply_text("У вас нет прав для выполнения этой команды.")
@@ -145,7 +132,6 @@ async def list_audios_command(
 
     message_text = "Сохраненные аудио:\n\n"
     for i, item in enumerate(cached_audios_data):
-        # Using the file_id as the unique identifier for deletion
         message_text += (
             f"{i+1}. ID: `{item.get('file_id', 'N/A')}`\n"
             f"   Автор: {item.get('author', 'Неизвестный автор')}\n"
@@ -154,14 +140,9 @@ async def list_audios_command(
 
     await update.message.reply_text(message_text, parse_mode="Markdown")
 
-
-async def delete_audio_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def delete_audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Deletes a saved audio file by its file_id (admin-only)."""
     global cached_audios_data
-
-    # Authorization check for delete command
     user_id = update.effective_user.id
     if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
         await update.message.reply_text("У вас нет прав для выполнения этой команды.")
@@ -180,15 +161,10 @@ async def delete_audio_command(
     )
 
     original_count = len(cached_audios_data)
-
     new_cached_audios_data = []
     found_and_deleted = False
     for item in cached_audios_data:
-        current_file_id = item.get("file_id")
-        logger.info(
-            f"Comparing '{audio_id_to_delete}' with existing ID: '{current_file_id}'"
-        )
-        if current_file_id == audio_id_to_delete:
+        if item.get("file_id") == audio_id_to_delete:
             found_and_deleted = True
             logger.info(
                 f"Match found! Deleting audio: {item.get('name')} by {item.get('author')}"
@@ -196,10 +172,10 @@ async def delete_audio_command(
         else:
             new_cached_audios_data.append(item)
 
-    cached_audios_data = new_cached_audios_data  # Update the global list
+    cached_audios_data = new_cached_audios_data
 
     if found_and_deleted:
-        save_audio_metadata()  # Save changes to the file
+        save_audio_metadata()
         await update.message.reply_text(
             f"Аудио с ID `{audio_id_to_delete}` успешно удалено."
         )
@@ -214,13 +190,9 @@ async def delete_audio_command(
             f"Attempted to delete non-existent audio with ID {audio_id_to_delete} by user {update.effective_user.id}."
         )
 
-
-async def move_audio_command(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def move_audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Moves a saved audio file to a new position (admin-only)."""
     global cached_audios_data
-
     user_id = update.effective_user.id
     if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
         await update.message.reply_text("У вас нет прав для выполнения этой команды.")
@@ -247,7 +219,6 @@ async def move_audio_command(
         await update.message.reply_text("Список аудио пуст. Нечего перемещать.")
         return
 
-    # Find the audio to move
     audio_to_move = None
     original_index = -1
     for i, item in enumerate(cached_audios_data):
@@ -263,34 +234,23 @@ async def move_audio_command(
         )
         return
 
-    # Adjust new_position to be 0-indexed and within bounds
-    # User provides 1-indexed position, convert to 0-indexed
     target_index = new_position - 1
-
-    # Ensure target_index is within valid range [0, len(list)]
-    # len(list) is a valid index for inserting at the very end
-    if not (
-        0 <= target_index <= len(cached_audios_data) - 1
-    ):  # Allow inserting at the end
+    if not (0 <= target_index <= len(cached_audios_data) - 1):
         await update.message.reply_text(
             f"Неверная позиция. Пожалуйста, укажите позицию от 1 до {len(cached_audios_data)}."
         )
         return
 
-    # Remove the audio from its original position
     cached_audios_data.pop(original_index)
-
-    # Insert the audio at the new position
     cached_audios_data.insert(target_index, audio_to_move)
 
-    save_audio_metadata()  # Save changes to the file
+    save_audio_metadata()
     await update.message.reply_text(
         f"Аудио '{audio_to_move.get('name')}' перемещено на позицию {new_position}."
     )
     logger.info(
         f"Audio '{audio_to_move.get('name')}' (ID: {audio_id_to_move}) moved from {original_index} to {target_index} by user {user_id}."
     )
-
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles incoming voice messages and audio files."""
