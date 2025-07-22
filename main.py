@@ -107,7 +107,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "/list - Показать список всех сохраненных аудио\n"
             "/delete <ID> - Удалить аудио по ID\n"
             "/move <ID> <позиция> - Изменить порядок аудио\n"
-            "/edit <ID> - Изменить автора и название аудио\n"  # New command added
+            "/edit <ID> - Изменить автора и название аудио\n"
             "/voices - Просмотреть интерактивный список всех аудио"
         )
         logger.info(f"Authorized user {user_id} started the bot.")
@@ -212,7 +212,7 @@ async def delete_audio_command(
             f"Аудио с ID `{audio_id_to_delete}` не найдено. Проверьте правильность ID."
         )
         logger.warning(
-            f"Attempted to delete non-existent audio with ID {audio_id_to_delete} by user {update.effective_user.id}."
+            f"Attempted to delete non-existent audio with ID {audio_id_to_delete} by user {user_id}."
         )
 
 
@@ -566,7 +566,7 @@ async def send_paginated_audios(
     command_message_id: int = None,
 ) -> None:
     """Sends a page of audio files with pagination buttons."""
-    global cached_audios_data
+    # global cached_audios_data # Removed this line as it's not needed for reading
 
     # Delete the command message if it was passed
     if command_message_id:
@@ -742,9 +742,7 @@ async def run_server():
     application.add_handler(CommandHandler("list", list_audios_command))
     application.add_handler(CommandHandler("delete", delete_audio_command))
     application.add_handler(CommandHandler("move", move_audio_command))
-    application.add_handler(
-        CommandHandler("edit", edit_audio_command)
-    )  # New: /edit command
+    application.add_handler(CommandHandler("edit", edit_audio_command))
     application.add_handler(CommandHandler("voices", voices_command))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
     application.add_handler(
