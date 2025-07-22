@@ -1,15 +1,29 @@
-app = "audioperduny"
+app = "perduny-bot"
 
-[build]
-  dockerfile = "Dockerfile"
+[[services]]
+  internal_port = 8080
+  protocol = "tcp" # Or "udp" if your service primarily uses UDP
+  
+  # Health check definition (already corrected)
+  [[services.checks]]
+    port = 8080
+    path = "/healthz"
+    interval = "10s"
+    timeout = "2s"
+    # You can add other check parameters here if needed, e.g.:
+    # grace_period = "5s"
+    # restart_limit = 3
 
-[env]
-  PORT = "8080"
+  # Add this section to expose ports for your service
+  [[services.ports]]
+    port = 80 # External port (e.g., for HTTP traffic)
+    handlers = ["http"] # Handlers for this port (e.g., "http", "tls")
+  
+  # If you need HTTPS, you can add another port section:
+  # [[services.ports]]
+  #   port = 443
+  #   handlers = ["tls", "http"]
 
 [mounts]
-  source = "audio_data"
-  destination = "/data"
-
-[http_service]
-  internal_port = 8080
-  force_https = true
+  source="my_audio_volume"
+  destination="/app/audio_messages" # This should match your AUDIO_STORAGE path

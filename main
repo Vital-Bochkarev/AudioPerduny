@@ -1,0 +1,248 @@
+import logging
+import json
+from telegram import Update, InlineQueryResultCachedAudio
+from telegram.ext import Application, CommandHandler, InlineQueryHandler, ContextTypes
+
+# Enable logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# --- Configuration ---
+# Store your bot token securely, e.g., in a separate file or environment variable.
+# For simplicity in this example, we'll read from bot_token.txt
+try:
+    with open("bot_token.txt", "r") as f:
+        BOT_TOKEN = f.read().strip()
+except FileNotFoundError:
+    logger.error("bot_token.txt not found. Please create it and paste your bot token inside.")
+    exit(1)
+
+# File to store your audio meme data (file_id, title, keywords)
+MEME_DATA_FILE = "audio_memes.json"
+meme_data = {}
+
+# --- Helper Functions ---
+
+def load_meme_data():
+    global meme_data
+    try:
+        with open(MEME_DATA_FILE, "r") as f:
+            meme_data = json.load(f)
+        logger.info(f"Loaded {len(meme_data)} audio memes from {MEME_DATA_FILE}")
+    except FileNotFoundError:
+        meme_data = {}
+        logger.warning(f"{MEME_DATA_FILE} not found. Starting with empty meme data.")
+    except json.JSONDecodeError:
+        meme_data = {}
+        logger.error(f"Error decoding JSON from {MEME_DATA_FILE}. Starting with empty meme data.")
+
+def save_meme_data():
+    with open(MEME_DATA_FILE, "w") as f:
+        json.dump(meme_data, f, indent=4)
+    logger.info(f"Saved {len(meme_data)} audio memes to {MEME_DATA_FILE}")
+
+# --- Bot Commands and Handlers ---
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Sends a message when the command /start is issued."""
+    await update.message.reply_text(
+        "Hello! I'm your meme audio bot. "
+        "Send me an audio file to save it as a meme. "
+        "You can then search for your memes inline by typing @yourbotusername <query> in any chat."
+    )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Sends a message when the command /help is issued."""
+    await update.message.reply_text(
+        "Here's how to use me:\n\n"
+        "1. Send me an **audio file** (e.g., a voice message or an MP3/OGG file).\n"
+        "2. In the caption, provide a **title** and comma-separated **keywords** (e.g., `Title: Epic Fail, Keywords: fail, epic, sound`)\n"
+        "3. I will save it and tell you its unique ID.\n"
+        "4. To search, type `@yourbotusername <your_query>` in any chat. For example: `@my_meme_bot epic`"
+    )
+
+async def handle_audio_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles incoming audio files and saves their file_id for memes."""
+    message = update.message
+    if message and message.audio:
+        file_id = message.audio.file_id
+        caption = message.caption
+        
+        title = "Untitled Meme"
+        keywords = []
+
+        if caption:
+            # Basic parsing of caption for title and keywords
+            # You can make this parsing more robust
+            if "Title:" in caption:
+                try:
+                    title_part = caption.split("Title:", 1)[1].strip()
+                    if "Keywords:" in title_part:
+                        title = title_part.split("Keywords:", 1)[0].strip()
+                        keywords_part = title_part.split("Keywords:", 1)[1].strip()
+                        keywords = [k.strip().lower() for k in keywords_part.split(',') if k.strip()]
+                    else:
+                        title = title_part
+                except IndexError:
+                    pass # Keep default title/keywords if parsing fails
+            elif "Keywords:" in caption:
+                try:
+                    keywords_part = caption.split("Keywords:", 1)[1].strip()
+                    keywords = [k.strip().lower() for k in keywords_part.split(',') if k.strip()]
+                except IndexError:
+                    pass
+            
+            if not keywords and caption: # If no explicit keywords, use parts of caption as keywords
+                keywords.extend([word.lower() for word in caption.split() if len(word) > 2])
+
+        if not title: # Fallback if title still empty
+            title = f"Meme {len(meme_data) + 1}"
+        
+        # Add a unique ID for the meme (you might want a more robust ID system)
+        meme_id = f"meme_{len(meme_data) + 1}"
+
+        meme_data[meme_id] = {
+            "file_id": file_id,
+            "title": title,
+            "keywords": list(set(keywords)), # Use set to remove duplicates
+            "caption": caption if caption else title # Store original caption or generated title
+        }
+        save_meme_data()
+        await message.reply_text(
+            f"Meme '{title}' saved with ID: `{meme_id}`\n"
+            f"Keywords: {', '.join(keywords)}\n"
+            "You can now search for it inline."
+        )
+    elif message and message.voice: # If it's a voice message
+        file_id = message.voice.file_id
+        caption = message.caption
+
+        title = "Untitled Voice Meme"
+        keywords = []
+
+        if caption:
+            if "Title:" in caption:
+                try:
+                    title_part = caption.split("Title:", 1)[1].strip()
+                    if "Keywords:" in title_part:
+                        title = title_part.split("Keywords:", 1)[0].strip()
+                        keywords_part = title_part.split("Keywords:", 1)[1].strip()
+                        keywords = [k.strip().lower() for k in keywords_part.split(',') if k.strip()]
+                    else:
+                        title = title_part
+                except IndexError:
+                    pass
+            elif "Keywords:" in caption:
+                try:
+                    keywords_part = caption.split("Keywords:", 1)[1].strip()
+                    keywords = [k.strip().lower() for k in keywords_part.split(',') if k.strip()]
+                except IndexError:
+                    pass
+            
+            if not keywords and caption:
+                keywords.extend([word.lower() for word in caption.split() if len(word) > 2])
+
+        if not title:
+            title = f"Voice Meme {len(meme_data) + 1}"
+
+        meme_id = f"voicememe_{len(meme_data) + 1}"
+
+        meme_data[meme_id] = {
+            "file_id": file_id,
+            "title": title,
+            "keywords": list(set(keywords)),
+            "caption": caption if caption else title
+        }
+        save_meme_data()
+        await message.reply_text(
+            f"Voice Meme '{title}' saved with ID: `{meme_id}`\n"
+            f"Keywords: {', '.join(keywords)}\n"
+            "You can now search for it inline."
+        )
+    else:
+        await message.reply_text("Please send an audio file or a voice message to save it as a meme.")
+
+
+async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the inline query."""
+    query = update.inline_query.query.lower()
+    results = []
+    
+    # Filter memes based on query
+    for meme_id, data in meme_data.items():
+        if query in data["title"].lower() or any(query in k for k in data["keywords"]):
+            results.append(
+                InlineQueryResultCachedAudio(
+                    id=meme_id,
+                    audio_file_id=data["file_id"],
+                    title=data["title"],
+                    caption=data["caption"]
+                )
+            )
+    
+    await update.inline_query.answer(results)
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a telegram message to notify the developer."""
+    logger.error(f"Update {update} caused error {context.error}")
+
+def main() -> None:
+    """Start the bot."""
+    # Load existing meme data on startup
+    load_meme_data()
+
+    # Create the Application and pass it your bot's token.
+    application = Application.builder().token(BOT_TOKEN).build()
+
+    # Register handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(InlineQueryHandler(inline_query))
+    application.add_handler(CommandHandler("addmeme", handle_audio_message)) # Can also send audio directly
+    # To handle audio messages sent without a specific command, you'd typically use MessageHandler
+    # However, for saving memes, it's better to explicitly trigger a save or parse captions.
+    # For this example, we'll listen to all messages that contain audio/voice.
+    application.add_handler(
+        # Filters.AUDIO | Filters.VOICE is deprecated in v22.3, use the new filters:
+        # from telegram.ext.filters import Audio, Voice
+        # You'll need to import specific filters if you want more granular control,
+        # but for simplicity, we'll process all messages and check if they have audio/voice.
+        # A better approach for the "saving" part might be to only process
+        # audio messages sent *directly* to the bot, or specific commands.
+        # For now, handle_audio_message will check for message.audio or message.voice
+        # You would typically add a filter like: MessageHandler(filters.AUDIO | filters.VOICE, handle_audio_message)
+        # However, for this specific use case, it's more common to have a /addmeme command
+        # or a specific method of adding files.
+        # Let's keep it simple for now, and handle any audio/voice message.
+        # You might want to filter this more strictly in a production bot.
+        # For saving memes, it's safer to have an explicit command like /addmeme
+        # or for the bot to be in a private chat with you.
+        # The current `handle_audio_message` is designed to be triggered by sending audio to the bot.
+        # A robust way would be to check if the message is from a specific admin or a private chat.
+        # For this example, we'll just process any audio message sent to the bot.
+        # No, the previous thought was incorrect. MessageHandler is for general messages.
+        # To specifically handle *audio messages* without a command:
+        # from telegram.ext import MessageHandler, filters
+        # application.add_handler(MessageHandler(filters.AUDIO | filters.VOICE, handle_audio_message))
+        # But this would save ALL audios. The current /addmeme command is more appropriate.
+        # I'll rely on the user sending an audio to the bot for it to be processed by `handle_audio_message`.
+        # The current setup assumes the user sends an audio *to the bot itself*
+        # which then triggers `handle_audio_message` if the message contains audio.
+        # If you want a more explicit "add meme" flow, the `/addmeme` command is good.
+        # The `handle_audio_message` is set up to be called when *any* message containing audio
+        # or voice is sent to the bot. This is simpler for initial setup.
+        MessageHandler(filters.AUDIO | filters.VOICE, handle_audio_message)
+
+    )
+
+
+    # Error handler
+    application.add_error_handler(error_handler)
+
+    # Run the bot until the user presses Ctrl-C
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == "__main__":
+    main()
