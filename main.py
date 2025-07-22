@@ -162,3 +162,41 @@ if __name__ == "__main__":
         logger.info("Bot stopped by user")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
+
+
+# ===============
+# /move COMMAND
+# ===============
+async def move_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
+        await update.message.reply_text("You are not authorized to use this command.")
+        return
+
+    try:
+        current_index = int(context.args[0])
+        new_index = int(context.args[1])
+    except (IndexError, ValueError):
+        await update.message.reply_text("Usage: /move <current_index> <new_index>")
+        return
+
+    global cached_audio_data
+    total = len(cached_audio_data)
+
+    if not (0 <= current_index < total) or not (0 <= new_index < total):
+        await update.message.reply_text(f"Indices must be between 0 and {total - 1}")
+        return
+
+    item = cached_audio_data.pop(current_index)
+    cached_audio_data.insert(new_index, item)
+    save_audio_metadata()
+
+    await update.message.reply_text(
+        f"Moved audio from position {current_index} to {new_index}."
+    )
+
+
+# Register handler for /move (add inside main function)
+def register_move_handler(app):
+    app.add_handler(CommandHandler("move", move_audio))
+
