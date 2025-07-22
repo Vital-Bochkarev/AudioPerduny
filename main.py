@@ -106,7 +106,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "/add - Добавить новое аудио\n"
             "/list - Показать список всех сохраненных аудио\n"
             "/delete <ID> - Удалить аудио по ID\n"
-            "/move <ID> <позиция> - Изменить порядок аудио\n"  # New command added
+            "/move <ID> <позиция> - Изменить порядок аудио\n"
+            "/edit <ID> - Изменить автора и название аудио\n"  # New command added
             "/voices - Просмотреть интерактивный список всех аудио"
         )
         logger.info(f"Authorized user {user_id} started the bot.")
@@ -292,6 +293,49 @@ async def move_audio_command(
     )
 
 
+async def edit_audio_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Initiates the audio editing process for authorized users."""
+    user = update.effective_user
+    if AUTHORIZED_USERS and user.id not in AUTHORIZED_USERS:
+        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+        logger.warning(f"Unauthorized attempt to use /edit by user: {user.id}")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Пожалуйста, укажите ID аудио для редактирования. Используйте /list, чтобы получить список ID."
+        )
+        return
+
+    audio_id_to_edit = context.args[0].strip()
+
+    # Find the audio to edit
+    found_audio = None
+    for item in cached_audios_data:
+        if item.get("file_id") == audio_id_to_edit:
+            found_audio = item
+            break
+
+    if found_audio is None:
+        await update.message.reply_text(f"Аудио с ID `{audio_id_to_edit}` не найдено.")
+        logger.warning(
+            f"Attempted to edit non-existent audio with ID {audio_id_to_edit} by user {user.id}."
+        )
+        return
+
+    context.user_data["state"] = "awaiting_new_author"
+    context.user_data["editing_audio_id"] = audio_id_to_edit
+    await update.message.reply_text(
+        f"Найдено аудио '{found_audio.get('name')}' от '{found_audio.get('author')}'.\n"
+        f"Введите нового автора для этого аудио:"
+    )
+    logger.info(
+        f"User {user.id} initiated /edit command for audio ID: {audio_id_to_edit}"
+    )
+
+
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles incoming voice messages and audio files."""
     user = update.effective_user
@@ -347,7 +391,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user = update.effective_user
     current_state = context.user_data.get("state")
 
-    # Handle author input first
+    # Handle author input for adding new audio
     if current_state == "awaiting_author_name":
         author_name = update.message.text.strip()
         if author_name:
@@ -362,7 +406,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         else:
             await update.message.reply_text("Пожалуйста, введи автора.")
 
-    # Handle audio name input second
+    # Handle audio name input for adding new audio
     elif current_state == "awaiting_audio_name":
         audio_name = update.message.text.strip()
         file_id = context.user_data.pop("pending_audio_file_id", None)
@@ -395,6 +439,61 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 f"User {user.id} provided audio name '{audio_name}' but missing other audio details."
             )
             await update.message.reply_text("Что-то пошло не так, повтори с начала")
+
+    # Handle new author input for editing existing audio
+    elif current_state == "awaiting_new_author":
+        new_author = update.message.text.strip()
+        if new_author:
+            context.user_data["temp_new_author"] = new_author
+            context.user_data["state"] = "awaiting_new_name"
+            await update.message.reply_text("Теперь введите новое название для аудио:")
+            logger.info(
+                f"User {user.id} provided new author: '{new_author}' for editing audio."
+            )
+        else:
+            await update.message.reply_text("Пожалуйста, введите нового автора.")
+
+    # Handle new name input for editing existing audio
+    elif current_state == "awaiting_new_name":
+        new_name = update.message.text.strip()
+        audio_id_to_edit = context.user_data.pop("editing_audio_id", None)
+        new_author = context.user_data.pop("temp_new_author", None)
+        context.user_data.pop("state", None)  # Clear the state
+
+        if new_name and audio_id_to_edit and new_author:
+            global cached_audios_data
+            found_and_updated = False
+            for item in cached_audios_data:
+                if item.get("file_id") == audio_id_to_edit:
+                    item["author"] = new_author
+                    item["name"] = new_name
+                    found_and_updated = True
+                    break
+
+            if found_and_updated:
+                save_audio_metadata()
+                await update.message.reply_text(
+                    f"Аудио с ID `{audio_id_to_edit}` успешно обновлено:\n"
+                    f"Новый Автор: {new_author}\n"
+                    f"Новое Название: {new_name}"
+                )
+                logger.info(
+                    f"Audio ID {audio_id_to_edit} updated by user {user.id} to Author: '{new_author}', Name: '{new_name}'."
+                )
+            else:
+                await update.message.reply_text(
+                    "Произошла ошибка: аудио не найдено для обновления."
+                )
+                logger.warning(
+                    f"Attempted to update non-existent audio ID {audio_id_to_edit} by user {user.id}."
+                )
+        else:
+            logger.warning(
+                f"User {user.id} provided new name '{new_name}' but missing other editing details."
+            )
+            await update.message.reply_text(
+                "Что-то пошло не так при обновлении аудио. Попробуйте начать /edit заново."
+            )
 
     else:
         logger.info(f"Received general text from {user.id}: '{update.message.text}'")
@@ -642,9 +741,10 @@ async def run_server():
     application.add_handler(CommandHandler("add", add_audio_command))
     application.add_handler(CommandHandler("list", list_audios_command))
     application.add_handler(CommandHandler("delete", delete_audio_command))
+    application.add_handler(CommandHandler("move", move_audio_command))
     application.add_handler(
-        CommandHandler("move", move_audio_command)
-    )  # New: /move command
+        CommandHandler("edit", edit_audio_command)
+    )  # New: /edit command
     application.add_handler(CommandHandler("voices", voices_command))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
     application.add_handler(
