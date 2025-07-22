@@ -106,6 +106,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "/add - Добавить новое аудио\n"
             "/list - Показать список всех сохраненных аудио\n"
             "/delete <ID> - Удалить аудио по ID\n"
+            "/move <ID> <позиция> - Изменить порядок аудио\n"  # New command added
             "/voices - Просмотреть интерактивный список всех аудио"
         )
         logger.info(f"Authorized user {user_id} started the bot.")
@@ -212,6 +213,83 @@ async def delete_audio_command(
         logger.warning(
             f"Attempted to delete non-existent audio with ID {audio_id_to_delete} by user {update.effective_user.id}."
         )
+
+
+async def move_audio_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Moves a saved audio file to a new position (admin-only)."""
+    global cached_audios_data
+
+    user_id = update.effective_user.id
+    if AUTHORIZED_USERS and user_id not in AUTHORIZED_USERS:
+        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+        logger.warning(f"Unauthorized attempt to move audio by user: {user_id}")
+        return
+
+    if len(context.args) != 2:
+        await update.message.reply_text(
+            "Использование: /move <ID_аудио> <новая_позиция>\n"
+            "Пример: /move AwACAgQAAxk... 3"
+        )
+        return
+
+    audio_id_to_move = context.args[0].strip()
+    try:
+        new_position = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text(
+            "Неверный формат новой позиции. Позиция должна быть числом."
+        )
+        return
+
+    if not cached_audios_data:
+        await update.message.reply_text("Список аудио пуст. Нечего перемещать.")
+        return
+
+    # Find the audio to move
+    audio_to_move = None
+    original_index = -1
+    for i, item in enumerate(cached_audios_data):
+        if item.get("file_id") == audio_id_to_move:
+            audio_to_move = item
+            original_index = i
+            break
+
+    if audio_to_move is None:
+        await update.message.reply_text(f"Аудио с ID `{audio_id_to_move}` не найдено.")
+        logger.warning(
+            f"Attempted to move non-existent audio with ID {audio_id_to_move} by user {user_id}."
+        )
+        return
+
+    # Adjust new_position to be 0-indexed and within bounds
+    # User provides 1-indexed position, convert to 0-indexed
+    target_index = new_position - 1
+
+    # Ensure target_index is within valid range [0, len(list)]
+    # len(list) is a valid index for inserting at the very end
+    if not (
+        0 <= target_index <= len(cached_audios_data) - 1
+    ):  # Allow inserting at the end
+        await update.message.reply_text(
+            f"Неверная позиция. Пожалуйста, укажите позицию от 1 до {len(cached_audios_data)}."
+        )
+        return
+
+    # Remove the audio from its original position
+    cached_audios_data.pop(original_index)
+
+    # Insert the audio at the new position
+    cached_audios_data.insert(target_index, audio_to_move)
+
+    save_audio_metadata()  # Save changes to the file
+    await update.message.reply_text(
+        f"Аудио '{audio_to_move.get('name')}' перемещено на позицию {new_position}."
+    )
+    logger.info(
+        f"Audio '{audio_to_move.get('name')}' (ID: {audio_id_to_move}) moved from {original_index} to {target_index} by user {user_id}."
+    )
 
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -564,6 +642,9 @@ async def run_server():
     application.add_handler(CommandHandler("add", add_audio_command))
     application.add_handler(CommandHandler("list", list_audios_command))
     application.add_handler(CommandHandler("delete", delete_audio_command))
+    application.add_handler(
+        CommandHandler("move", move_audio_command)
+    )  # New: /move command
     application.add_handler(CommandHandler("voices", voices_command))
     application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_audio))
     application.add_handler(
