@@ -1,7 +1,7 @@
-app = "audioperduny"  # Your app name
+app = "audioperduny"
 
 [build]
-  builder = "paketobuildpacks/builder:base"
+  dockerfile = "Dockerfile"
 
 [env]
   PORT = "8080"
