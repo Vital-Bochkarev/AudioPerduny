@@ -1,29 +1,34 @@
-app = "perduny-bot"
+# fly.toml app configuration file generated for perduny-bot on 2025-07-22T12:25:06+03:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'perduny-bot'
+primary_region = 'otp'
+
+[build]
+
+[[mounts]]
+  source = 'my_audio_volume'
+  destination = '/app/audio_messages'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
 
 [[services]]
+  protocol = 'tcp'
   internal_port = 8080
-  protocol = "tcp" # Or "udp" if your service primarily uses UDP
-  
-  # Health check definition (already corrected)
-  [[services.checks]]
-    port = 8080
-    path = "/healthz"
-    interval = "10s"
-    timeout = "2s"
-    # You can add other check parameters here if needed, e.g.:
-    # grace_period = "5s"
-    # restart_limit = 3
 
-  # Add this section to expose ports for your service
   [[services.ports]]
-    port = 80 # External port (e.g., for HTTP traffic)
-    handlers = ["http"] # Handlers for this port (e.g., "http", "tls")
-  
-  # If you need HTTPS, you can add another port section:
-  # [[services.ports]]
-  #   port = 443
-  #   handlers = ["tls", "http"]
+    port = 80
+    handlers = ['http']
 
-[mounts]
-  source="my_audio_volume"
-  destination="/app/audio_messages" # This should match your AUDIO_STORAGE path
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
