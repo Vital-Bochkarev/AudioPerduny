@@ -123,6 +123,7 @@ async def run_server():
     
     # Add handlers
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler(\"move\", move_audio))
     application.add_handler(CommandHandler("add", add_audio_command))
     # [Add all other handlers...]
 
@@ -195,8 +196,4 @@ async def move_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Moved audio from position {current_index} to {new_index}."
     )
 
-
-# Register handler for /move (add inside main function)
-def register_move_handler(app):
-    app.add_handler(CommandHandler("move", move_audio))
 
