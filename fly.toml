@@ -1,14 +1,3 @@
-app = "audioperduny"
-
-[env]
-  PORT = "8080"
-
-[mounts]
-  source = "audio_data"
-  destination = "/data"
-
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = false
-  auto_start_machines = true
+python-telegram-bot==20.3
+aiohttp==3.9.0
+psycopg[binary]==3.1.10
